@@ -68,14 +68,57 @@ def clientConnection(clientSock, clientAddress):
         print(f"Online users: {onlineUsers}\n")
 
         # Send registration confirmation
-        sendJSON(clientSock, {"type": "registered", "username": username, "online_users": onlineUsers})
+        sendJSON(clientSock, {"type": "registered", 
+                              "username": username, 
+                              "online_users": onlineUsers})
         
         # Keep connection open until client disconnects
         while True:
             incomingData = clientFile.readline()
             if not incomingData:
                 break
-
+            
+            msg = json.loads(incomingData)
+            
+            #checks the type of message received from the client. If it is a message, it will extract the recipient and text from the message
+            if msg.get("type") == "message":
+                recipient = msg.get("to")
+                text = msg.get("text")
+                
+                #input validation
+                if not isinstance(recipient, str) or not isinstance(text, str):
+                    sendJSON(clientSock, {
+                        "type": "error",
+                        "message": "Invalid message format."
+                    })
+                    continue
+                
+                with clientsLock:
+                    recipientSock = clients.get(recipient)
+                
+                #error checking if the recipient is online or not, sending a message that the user is unavailable
+                if recipientSock is None:
+                    sendJSON(clientSock, {
+                        "type": "error",
+                        "message": f"User '{recipient}' not found or is offline."
+                    })
+                    continue
+                
+                fullMessage = {
+                    "type": "message",
+                    "from": username,
+                    "text": text
+                }
+                
+                sendJSON(recipientSock, fullMessage)
+                print(f"Message sent from {username} to {recipient}")
+                
+            else:
+                sendJSON(clientSock, {
+                    "type": "error",
+                    "message": "Unknown message type."
+                })
+                   
     except (OSError, ValueError) as error:
         print(f"Client error: {error}")
         
