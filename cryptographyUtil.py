@@ -1,6 +1,9 @@
 import os
+import hashlib
+from cryptography.exceptions import InvalidSignature
 from cryptography.hazmat.primitives.asymmetric import rsa
 from cryptography.hazmat.primitives.asymmetric import padding
+from cryptography.hazmat.primitives.asymmetric import utils
 from cryptography.hazmat.primitives import hashes
 from cryptography.hazmat.primitives import serialization
 from cryptography.hazmat.primitives.ciphers.aead import AESGCM
@@ -57,4 +60,46 @@ def encryptRSA(aesKey, receiverPublicKey):
 def decryptRSA(encryptedKey, receiverPrivateKey):
    return receiverPrivateKey.decrypt(encryptedKey, padding.OAEP(mgf=padding.MGF1(algorithm=hashes.SHA256()), algorithm=hashes.SHA256(), label=None))
 
+# Hashes the message information using SHA-256
+def hashMessage(msg):
+    # Combine the sender, recipient, message number, timestamp and encrypted data into a single string
+    fields = [
+        msg["from"],
+        msg["to"],
+        str(msg["msgNum"]), 
+        str(msg["timestamp"]), #message number and timestamp used to keep order and prevent replay attacks
+        msg["encrypted_key"],
+        msg["nonce"],
+        msg["ciphertext"]
+    ]
+    # The string of fields is then encoded and hashed producing uniqueness and integrity of the message
+    data = "|".join(fields).encode("utf-8")
+    return hashlib.sha256(data).digest()
+
+# Signs the message hash using the sender's RSA private key
+def signMessage(msg, senderPrivateKey):
+    digest = hashMessage(msg) #hashing using previously defined hashMessage function
+    #return the signed hash with sender private key
+    return senderPrivateKey.sign(digest, padding.PSS(mgf=padding.MGF1(hashes.SHA256()), salt_length=padding.PSS.MAX_LENGTH), utils.Prehashed(hashes.SHA256()))
     
+    
+# verify the message signature using the sender's RSA public key
+def verifyMessage(msg, signature, senderPublicKey):
+    #hash message first as an integrity check to ensure the message has not been tampered with
+    digest = hashMessage(msg) 
+    try:
+        senderPublicKey.verify(signature, digest, padding.PSS(mgf=padding.MGF1(hashes.SHA256()), salt_length=padding.PSS.MAX_LENGTH), utils.Prehashed(hashes.SHA256()))
+        return True
+    except InvalidSignature:
+        return False
+
+# Check if the message number has already been received from the sender. If it has, this signifies an error or a replay attack.
+# use this flag later to reject a message or send alert
+def checkReplay(msg, lastMsgNum):
+    sender = msg["from"]
+    msgNum = msg["msgNum"]
+    
+    if sender in lastMsgNum: #checks if the sender is already in the lastMsgNum dictionary, and if the message number has been repeated
+        if msgNum <= lastMsgNum[sender]:
+            return False
+    return True
