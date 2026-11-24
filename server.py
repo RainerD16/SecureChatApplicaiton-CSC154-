@@ -6,7 +6,8 @@ import json
 HOST = "127.0.0.1"
 PORT = 5000
 
-clients = {} #dictionary to hold new client names
+clients = {} #stores currently connected clients
+publicKeys = {} #stores public keys
 
 clientsLock = threading.Lock()
 
@@ -40,7 +41,8 @@ def clientConnection(clientSock, clientAddress):
             return
 
         username = registration.get("username", "").strip() #sets username from the client
-
+        publicKey = registration.get("public_key")#sets public key from the client
+        
         if username == "": #error echecking if username is filled or not
             sendJSON(clientSock, {
                 "type": "error",
@@ -53,6 +55,7 @@ def clientConnection(clientSock, clientAddress):
                 registered = False
             else:
                 clients[username] = clientSock
+                publicKeys[username] = publicKey
                 registered = True
                 onlineUsers = list(clients.keys())
 
@@ -79,39 +82,52 @@ def clientConnection(clientSock, clientAddress):
                 break
             
             msg = json.loads(incomingData)
-            
-            #checks the type of message received from the client. If it is a message, it will extract the recipient and text from the message
-            if msg.get("type") == "message":
-                recipient = msg.get("to")
-                text = msg.get("text")
-                
-                #input validation
-                if not isinstance(recipient, str) or not isinstance(text, str):
+
+            # Check if a client is requesting another user's public key for sending encrypted messages
+            if msg.get("type") == "key_request":
+                requestedUser = msg.get("username")
+
+                with clientsLock:
+                    requestedKey = publicKeys.get(requestedUser)
+
+                if requestedKey is None:
                     sendJSON(clientSock, {
                         "type": "error",
-                        "message": "Invalid message format."
+                        "message": f"Public key for {requestedUser} not found."
+                    })
+                else:
+                    sendJSON(clientSock, {
+                        "type": "key_response",
+                        "username": requestedUser,
+                        "public_key": requestedKey
+                    })
+
+                print(f"{username} requested public key for {requestedUser}")
+                continue
+           
+            # Forward encrypted messages to recipient
+            if msg.get("type") == "message":
+                recipient = msg.get("to")
+
+                if msg.get("from") != username: # Verify the message came from the registered sender
+                    sendJSON(clientSock, {
+                        "type": "error",
+                        "message": "Invalid sender."
                     })
                     continue
-                
+
                 with clientsLock:
                     recipientSock = clients.get(recipient)
-                
-                #error checking if the recipient is online or not, sending a message that the user is unavailable
+
                 if recipientSock is None:
                     sendJSON(clientSock, {
                         "type": "error",
                         "message": f"User '{recipient}' not found or is offline."
                     })
                     continue
-                
-                fullMessage = {
-                    "type": "message",
-                    "from": username,
-                    "text": text
-                }
-                
-                sendJSON(recipientSock, fullMessage)
-                print(f"Message sent from {username} to {recipient}")
+
+                sendJSON(recipientSock, msg) # send the encrypted message
+                print(f"Encrypted message #{msg['msgNum']} forwarded from {username} to {recipient}")
                 
             else:
                 sendJSON(clientSock, {
@@ -123,11 +139,12 @@ def clientConnection(clientSock, clientAddress):
         print(f"Client error: {error}")
         
     finally:
-        # Remove user when they disconnect
+        # Remove user and their key when they disconnect
         if username:
             with clientsLock:
                 if clients.get(username) is clientSock:
                     del clients[username]
+                    del publicKeys[username]
         if clientFile is not None:
             clientFile.close()
         
