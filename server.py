@@ -1,10 +1,24 @@
 import socket
 import threading
 import json
+import sys
+import base64
 
-#Setting the host ip and port first
 HOST = "127.0.0.1"
 PORT = 5000
+
+#code to enable malicous mode, allows server to choose different attacks
+maliciousMode = len(sys.argv) > 1 and sys.argv[1] == "mal"
+attack = "" 
+
+if maliciousMode:
+    print("Malicious server mode enabled.")
+    print("1. Modify ciphertext")
+    print("2. Modify message number")
+    print("3. Redirect message to Carol")
+    print("4. Replay message")
+
+    attack = input("Select an attack: ")
 
 clients = {} #stores currently connected clients
 publicKeys = {} #stores public keys
@@ -115,7 +129,12 @@ def clientConnection(clientSock, clientAddress):
                         "message": "Invalid sender."
                     })
                     continue
-
+                
+                 # This is attack 3 which sends a message meant for Bob to Carol instead      
+                if maliciousMode and attack == "3" and recipient == "Bob":
+                    recipient = "Carol"
+                    print("Bob's next incoming message was redirected to Carol.")
+                    
                 with clientsLock:
                     recipientSock = clients.get(recipient)
 
@@ -125,10 +144,27 @@ def clientConnection(clientSock, clientAddress):
                         "message": f"User '{recipient}' not found or is offline."
                     })
                     continue
+                
+                #If attack 1 was picked in malicious mode, flip a single byte of the ciphertext
+                if maliciousMode and attack == "1":
+                    ciphertext = bytearray(base64.b64decode(msg["ciphertext"]))
+                    ciphertext[0] ^= 1
+                    msg["ciphertext"] = base64.b64encode(ciphertext).decode("utf-8")
+                    print("Ciphertext has been modified.")
 
+                # this is Attack 2 which modifies the message sequence number
+                if maliciousMode and attack == "2":
+                    msg["msgNum"] += 1
+                    print("Message sequence number has been modified.")
+                    
                 sendJSON(recipientSock, msg) # send the encrypted message
                 print(f"Encrypted message #{msg['msgNum']} forwarded from {username} to {recipient}")
+                print(f"Ciphertext: {msg['ciphertext']}")
                 
+                # Attack 4 sends the same message again (replay attack)
+                if maliciousMode and attack == "4":
+                    sendJSON(recipientSock, msg)
+                    print("Previous message replayed.")
             else:
                 sendJSON(clientSock, {
                     "type": "error",

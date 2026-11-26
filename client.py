@@ -28,7 +28,7 @@ else:
 #This converts the public key into PEM text for registration purposes
 publicKeyPEM = publicKey.public_bytes(encoding=serialization.Encoding.PEM, format=serialization.PublicFormat.SubjectPublicKeyInfo).decode("utf-8")
 
-def receiveMessages(serverFile, clientSock):
+def receiveMessages(serverFile):
     while True:
         try:
             incomingData = serverFile.readline()
@@ -73,6 +73,7 @@ def receiveMessages(serverFile, clientSock):
 
                 print(f"\n[{sender}]: {text}")
                 lastMsgNum[sender] = incomingMessage["msgNum"]
+                print("Signature has been verified.")
             
             elif incomingMessage.get("type") == "key_response":
                 requestedUser = incomingMessage.get("username")
@@ -114,7 +115,7 @@ with clientSock.makefile("r", encoding="utf-8") as serverFile:
         print(f"Users connected: {incomingMessage['online_users']}") 
 
         # sets up client server to continously listen for incoming messages from the server through threading
-        receiveThread = threading.Thread(target=receiveMessages, args=(serverFile, clientSock), daemon=True)
+        receiveThread = threading.Thread(target=receiveMessages, args=(serverFile,), daemon=True)
         receiveThread.start()
         
         while True:

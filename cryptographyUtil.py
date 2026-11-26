@@ -94,7 +94,6 @@ def verifyMessage(msg, signature, senderPublicKey):
         return False
 
 # Check if the message number has already been received from the sender. If it has, this signifies an error or a replay attack.
-# use this flag later to reject a message or send alert
 def checkReplay(msg, lastMsgNum):
     sender = msg["from"]
     msgNum = msg["msgNum"]
